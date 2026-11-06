@@ -1,10 +1,11 @@
 # ==============================================================
 # DAFTAR TARGET KOMPETITOR GOOGLE ADS TRANSPARENCY
 # ==============================================================
-# Format: Masukkan 1 URL profil pengiklan per baris.
-# Anda bisa menambahkan tanda pagar (#) untuk memberi catatan nama brand.
+# Anda bisa memasukkan:
+# 1. NAMA PERUSAHAAN / BRAND (Contoh: PT MUBARAK MEDIA GRUP)
+#    -> Rekomendasi! Mencakup seluruh sub-akun pengiklan sekaligus (~400 iklan).
+# 2. Atau URL profil lengkap.
 # 
-# Contoh:
-# https://adstransparency.google.com/advertiser/AR12218679420176564225?region=ID # PT MUBARAK MEDIA GRUP
+# Format: 1 target per baris (bisa diberi tanda # untuk catatan).
 
-https://adstransparency.google.com/advertiser/AR12218679420176564225?region=ID # PT MUBARAK MEDIA GRUP
+PT MUBARAK MEDIA GRUP
