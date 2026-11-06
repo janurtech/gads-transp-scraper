@@ -5,6 +5,6 @@
 # Anda bisa menambahkan tanda pagar (#) untuk memberi catatan nama brand.
 # 
 # Contoh:
-# https://adstransparency.google.com/advertiser/AR03102371984214458369?region=ID # PT MUBARAK MEDIA GRUP
+# https://adstransparency.google.com/advertiser/AR12218679420176564225?region=ID # PT MUBARAK MEDIA GRUP
 
-https://adstransparency.google.com/advertiser/AR03102371984214458369?region=ID # PT MUBARAK MEDIA GRUP
+https://adstransparency.google.com/advertiser/AR12218679420176564225?region=ID # PT MUBARAK MEDIA GRUP
