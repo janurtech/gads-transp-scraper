@@ -1,4 +1,5 @@
 import os
+import sys
 import re
 import time
 import requests
@@ -8,6 +9,18 @@ from playwright.sync_api import sync_playwright
 
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
+
+def periksa_kredensial():
+    """Memastikan token dan chat id sudah dimasukkan di GitHub Secrets"""
+    if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
+        print("\n" + "="*60)
+        print("❌ ERROR: Kredensial Telegram belum disetel di GitHub Secrets!")
+        print("Pastikan Anda sudah menambahkan:")
+        print("1. TELEGRAM_BOT_TOKEN (dari @BotFather)")
+        print("2. TELEGRAM_CHAT_ID (dari @userinfobot)")
+        print("di menu Settings > Secrets and variables > Actions")
+        print("="*60 + "\n")
+        sys.exit(1) # Buat failed agar terlihat jelas di GitHub Actions
 
 def baca_daftar_kompetitor():
     """Membaca URL target dari file competitors.txt"""
@@ -44,17 +57,18 @@ def extract_target_url(raw_href):
 def is_internal_domain(url_str):
     try:
         domain = urlparse(url_str).netloc.lower()
-        internal = ['google.', '.google', 'gstatic.', 'youtube.com', 'youtu.be', 'doubleclick.net', 'googlesyndication.com']
+        internal = ['google.', '.google', 'gstatic.', 'youtube.com', 'youtu.be', 'doubleclick.net', 'googlesyndication.com', 'schema.org', 'w3.org']
         return any(x in domain for x in internal)
     except Exception:
         return False
 
 def scrape_advertiser(page, advertiser_url):
     """Buka halaman profil kompetitor, auto-scroll, dan ekstrak link landing page & YouTube"""
-    print(f"🔍 Mengunjungi: {advertiser_url}")
+    print(f"\n🔍 [1/3] Mengunjungi target: {advertiser_url}")
     page.goto(advertiser_url, wait_until="domcontentloaded", timeout=60000)
-    page.wait_for_timeout(3000)
+    page.wait_for_timeout(4000)
 
+    # Tangkap nama pengiklan
     advertiser_name = "Pengiklan"
     try:
         adv_heading = page.locator("h1, .advertiser-name, [role='heading']").first
@@ -62,52 +76,69 @@ def scrape_advertiser(page, advertiser_url):
             advertiser_name = adv_heading.text_content().strip()
     except Exception:
         pass
+    print(f"🏢 Nama Pengiklan Terdeteksi: {advertiser_name}")
 
-    print("⏳ Sedang auto-scroll memuat seluruh materi iklan...")
+    # Auto-Scroll sampai materi iklan termuat
+    print("⏳ [2/3] Sedang auto-scroll memuat seluruh materi iklan...")
     last_height = page.evaluate("document.body.scrollHeight")
     attempts = 0
     max_scrolls = 15
 
-    for _ in range(max_scrolls):
+    for i in range(max_scrolls):
         page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
         page.wait_for_timeout(1500)
         new_height = page.evaluate("document.body.scrollHeight")
         if new_height == last_height:
             attempts += 1
-            if attempts >= 2:
+            if attempts >= 3:
                 break
         else:
             last_height = new_height
             attempts = 0
 
+    print("🔎 [3/3] Memindai seluruh frame & elemen materi iklan...")
     page_data = []
-    links = page.evaluate("""() => {
-        return Array.from(document.querySelectorAll('a')).map(a => a.href);
-    }""")
+    all_links = set()
 
-    yt_links = page.evaluate("""() => {
-        const matches = [];
-        const iframes = Array.from(document.querySelectorAll('iframe'));
-        iframes.forEach(f => {
-            const src = f.src || '';
-            const m = src.match(/(?:embed\/|vi\/|v=)([a-zA-Z0-9_-]{11})/);
-            if (m) matches.push('https://youtu.be/' + m[1]);
-        });
-        return matches;
-    }""")
+    # 1. Ambil link dari main page
+    try:
+        main_links = page.evaluate("() => Array.from(document.querySelectorAll('a')).map(a => a.href)")
+        for l in main_links:
+            if l: all_links.add(l)
+    except Exception:
+        pass
 
-    default_yt = yt_links[0] if yt_links else "-"
+    # 2. Ambil link dari seluruh child iframes (tempat materi iklan berada)
+    for frame in page.frames:
+        try:
+            f_links = frame.evaluate("() => Array.from(document.querySelectorAll('a')).map(a => a.href)")
+            for l in f_links:
+                if l: all_links.add(l)
+        except Exception:
+            pass
 
-    for raw_link in links:
+    # 3. Scan regex dari seluruh isi HTML halaman
+    html_content = page.content()
+    dest_matches = re.findall(r'destination_url[\'":\s]+(https?:\/\/[^\'"\s\\&]+)', html_content)
+    for dm in dest_matches:
+        all_links.add(dm)
+
+    # Ekstraksi YouTube Video ID
+    yt_matches = re.findall(r'(?:youtube\.com\/(?:watch\?v=|embed\/)|youtu\.be\/|ytimg\.com\/vi\/)([a-zA-Z0-9_-]{11})', html_content)
+    default_yt = f"https://youtu.be/{yt_matches[0]}" if yt_matches else "-"
+
+    for raw_link in all_links:
         real_url = extract_target_url(raw_link)
         if real_url and not is_internal_domain(real_url):
             clean_url = real_url.split("?")[0].rstrip("/")
-            page_data.append({
-                "url": clean_url,
-                "advertiser": advertiser_name,
-                "youtubeUrl": default_yt
-            })
+            if len(clean_url) > 10:
+                page_data.append({
+                    "url": clean_url,
+                    "advertiser": advertiser_name,
+                    "youtubeUrl": default_yt
+                })
 
+    print(f"📦 Ditemukan {len(page_data)} link materi iklan untuk {advertiser_name}.")
     return page_data
 
 def hitung_performa_dan_rekomendasi(all_items):
@@ -156,10 +187,7 @@ def hitung_performa_dan_rekomendasi(all_items):
     return products
 
 def kirim_ke_telegram(pesan):
-    if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
-        print("❌ Token Telegram atau Chat ID belum disetel!")
-        return
-
+    print("📤 Mengirim laporan ke Telegram...")
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
     payload = {
         "chat_id": TELEGRAM_CHAT_ID,
@@ -167,19 +195,25 @@ def kirim_ke_telegram(pesan):
         "parse_mode": "Markdown",
         "disable_web_page_preview": True
     }
-    resp = requests.post(url, json=payload, timeout=20)
-    if resp.status_code == 200:
-        print("✅ Berhasil kirim rekap ke Telegram!")
-    else:
-        print(f"❌ Gagal kirim Telegram: {resp.text}")
+    try:
+        resp = requests.post(url, json=payload, timeout=20)
+        if resp.status_code == 200:
+            print("✅ Berhasil kirim rekap ke Telegram!")
+        else:
+            print(f"❌ Gagal kirim Telegram (Status {resp.status_code}): {resp.text}")
+    except Exception as e:
+        print(f"❌ Error koneksi ke Telegram API: {e}")
 
 def main():
+    periksa_kredensial()
+
     targets = baca_daftar_kompetitor()
     if not targets:
-        print("Tidak ada URL target yang ditemukan di competitors.txt.")
+        print("⚠️ Tidak ada URL target yang ditemukan di competitors.txt.")
+        kirim_ke_telegram("⚠️ *Laporan Ads Transparency:*\nFile `competitors.txt` kosong atau belum berisi URL profil kompetitor.")
         return
 
-    print(f"🎯 Ditemukan {len(targets)} target kompetitor.")
+    print(f"🎯 Ditemukan {len(targets)} target kompetitor di competitors.txt.")
     all_scraped_items = []
 
     with sync_playwright() as p:
@@ -201,11 +235,16 @@ def main():
         browser.close()
 
     ranked_products = hitung_performa_dan_rekomendasi(all_scraped_items)
+    tgl_hari_ini = datetime.now().strftime("%d %b %Y")
+
     if not ranked_products:
-        print("Tidak ada materi iklan yang berhasil diekstrak.")
+        print("⚠️ Tidak ada produk materi iklan yang terdeteksi.")
+        pesan_kosong = f"📊 *REKAP PERFORMA PRODUK TERPANTAU*\n"
+        pesan_kosong += f"📅 Update: {tgl_hari_ini}\n\n"
+        pesan_kosong += f"ℹ️ Robot berhasil mengecek {len(targets)} target pengiklan di Google Ads Transparency, namun tidak ada materi iklan yang aktif saat ini."
+        kirim_ke_telegram(pesan_kosong)
         return
 
-    tgl_hari_ini = datetime.now().strftime("%d %b %Y")
     pesan = f"📊 *REKAP PERFORMA PRODUK TERPANTAU*\n"
     pesan += f"📅 Update: {tgl_hari_ini}\n"
     pesan += f"🎯 Target: {len(targets)} Pengiklan\n\n"
