@@ -10,6 +10,7 @@ on:
 jobs:
   scrape-and-notify:
     runs-on: ubuntu-latest
+    timeout-minutes: 5 # Batas maksimal 5 menit agar tidak pernah menggantung
 
     steps:
       - name: Checkout Repository
