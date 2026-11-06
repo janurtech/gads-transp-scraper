@@ -4,11 +4,22 @@ import re
 import time
 import requests
 from urllib.parse import urlparse, parse_qs
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from playwright.sync_api import sync_playwright
 
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
+
+def get_kemarin_dates():
+    """Menghitung tanggal H-1 (Kemarin) berdasarkan Waktu Indonesia Barat (WIB / UTC+7)"""
+    wib = timezone(timedelta(hours=7))
+    now_wib = datetime.now(wib)
+    kemarin_wib = now_wib - timedelta(days=1)
+    return {
+        "iso": kemarin_wib.strftime("%Y-%m-%d"),
+        "display": kemarin_wib.strftime("%d %b %Y"),
+        "hari_ini_display": now_wib.strftime("%d %b %Y")
+    }
 
 def periksa_kredensial():
     """Memastikan token dan chat id sudah dimasukkan di GitHub Secrets"""
@@ -20,7 +31,7 @@ def periksa_kredensial():
         print("2. TELEGRAM_CHAT_ID (dari @userinfobot)")
         print("di menu Settings > Secrets and variables > Actions")
         print("="*60 + "\n")
-        sys.exit(1) # Buat failed agar terlihat jelas di GitHub Actions
+        sys.exit(1)
 
 def baca_daftar_kompetitor():
     """Membaca URL target dari file competitors.txt"""
@@ -62,10 +73,47 @@ def is_internal_domain(url_str):
     except Exception:
         return False
 
-def scrape_advertiser(page, advertiser_url):
-    """Buka halaman profil kompetitor, auto-scroll, dan ekstrak link landing page & YouTube"""
-    print(f"\n🔍 [1/3] Mengunjungi target: {advertiser_url}")
-    page.goto(advertiser_url, wait_until="domcontentloaded", timeout=60000)
+def set_filter_tanggal_h_minus_1(page):
+    """Mengatur filter tanggal ke H-1 (Kemarin / Yesterday) di Google Ads Transparency UI"""
+    print("📅 [2/4] Mengatur filter tanggal ke H-1 (Kemarin)...")
+    try:
+        # 1. Cari elemen date-range-filter
+        date_filter = page.locator("date-range-filter, [role='button']:has-text('rentang'), [role='button']:has-text('date'), button:has-text('Rentang')").first
+        if date_filter.count() > 0:
+            date_filter.click()
+            page.wait_for_timeout(1200)
+
+            # 2. Cari opsi menu "Kemarin" (ID) atau "Yesterday" (EN)
+            option_kemarin = page.locator("text=/^(Kemarin|Yesterday)$/i, [role='option']:has-text('Kemarin'), [role='menuitem']:has-text('Kemarin'), [role='option']:has-text('Yesterday'), [role='menuitem']:has-text('Yesterday')").first
+            
+            if option_kemarin.count() == 0:
+                option_kemarin = page.get_by_text(re.compile(r"^(kemarin|yesterday)", re.I)).first
+
+            if option_kemarin.count() > 0:
+                option_kemarin.click()
+                print("✅ Filter tanggal H-1 (Kemarin) BERHASIL dipilih di UI!")
+                page.wait_for_timeout(3000)
+                return True
+            else:
+                print("ℹ️ Menu 'Kemarin' tidak terlihat, mencoba selector alternatif...")
+                # Tekan tombol ESC untuk menutup menu jika tidak ditemukan
+                page.keyboard.press("Escape")
+    except Exception as e:
+        print(f"⚠️ Catatan filter tanggal UI: {e}")
+    return False
+
+def scrape_advertiser(page, advertiser_url, tgl_info):
+    """Buka halaman profil kompetitor, terapkan filter H-1, auto-scroll, dan ekstrak iklan"""
+    kemarin_iso = tgl_info["iso"]
+
+    # Tambahkan parameter tanggal H-1 ke URL jika belum ada
+    target_url = advertiser_url
+    if "start-date=" not in target_url and "start_date=" not in target_url:
+        sep = "&" if "?" in target_url else "?"
+        target_url = f"{target_url}{sep}start-date={kemarin_iso}&end-date={kemarin_iso}"
+
+    print(f"\n🔍 [1/4] Mengunjungi target: {target_url}")
+    page.goto(target_url, wait_until="domcontentloaded", timeout=60000)
     page.wait_for_timeout(4000)
 
     # Tangkap nama pengiklan
@@ -76,10 +124,13 @@ def scrape_advertiser(page, advertiser_url):
             advertiser_name = adv_heading.text_content().strip()
     except Exception:
         pass
-    print(f"🏢 Nama Pengiklan Terdeteksi: {advertiser_name}")
+    print(f"🏢 Pengiklan: {advertiser_name}")
+
+    # Set tanggal H-1 lewat UI untuk memastikan data terfilter akurat
+    set_filter_tanggal_h_minus_1(page)
 
     # Auto-Scroll sampai materi iklan termuat
-    print("⏳ [2/3] Sedang auto-scroll memuat seluruh materi iklan...")
+    print("⏳ [3/4] Sedang auto-scroll memuat seluruh materi iklan H-1...")
     last_height = page.evaluate("document.body.scrollHeight")
     attempts = 0
     max_scrolls = 15
@@ -96,7 +147,7 @@ def scrape_advertiser(page, advertiser_url):
             last_height = new_height
             attempts = 0
 
-    print("🔎 [3/3] Memindai seluruh frame & elemen materi iklan...")
+    print("🔎 [4/4] Memindai seluruh frame & elemen materi iklan...")
     page_data = []
     all_links = set()
 
@@ -108,7 +159,7 @@ def scrape_advertiser(page, advertiser_url):
     except Exception:
         pass
 
-    # 2. Ambil link dari seluruh child iframes (tempat materi iklan berada)
+    # 2. Ambil link dari seluruh child iframes
     for frame in page.frames:
         try:
             f_links = frame.evaluate("() => Array.from(document.querySelectorAll('a')).map(a => a.href)")
@@ -138,7 +189,7 @@ def scrape_advertiser(page, advertiser_url):
                     "youtubeUrl": default_yt
                 })
 
-    print(f"📦 Ditemukan {len(page_data)} link materi iklan untuk {advertiser_name}.")
+    print(f"📦 Ditemukan {len(page_data)} materi iklan H-1 untuk {advertiser_name}.")
     return page_data
 
 def hitung_performa_dan_rekomendasi(all_items):
@@ -157,7 +208,7 @@ def hitung_performa_dan_rekomendasi(all_items):
                 "url": url,
                 "youtubeUrl": item.get("youtubeUrl", "-"),
                 "totalTayangan": 0,
-                "hariAktif": 5,
+                "hariAktif": 1, # Periode H-1 spesifik
                 "tren": "Stabil"
             }
         product_map[url]["totalTayangan"] += 1
@@ -167,12 +218,10 @@ def hitung_performa_dan_rekomendasi(all_items):
         return []
 
     max_tayangan = max(p["totalTayangan"] for p in products) or 1
-    max_hari = max(p["hariAktif"] for p in products) or 1
 
     for p in products:
-        score_volume = (p["totalTayangan"] / max_tayangan) * 70
-        score_hari = (p["hariAktif"] / max_hari) * 30
-        p["skor"] = round(score_volume + score_hari, 1)
+        score_volume = (p["totalTayangan"] / max_tayangan) * 100
+        p["skor"] = round(score_volume, 1)
 
         if p["skor"] >= 80:
             p["rek"] = "Prioritas Utama"
@@ -207,10 +256,13 @@ def kirim_ke_telegram(pesan):
 def main():
     periksa_kredensial()
 
+    tgl_info = get_kemarin_dates()
+    print(f"📅 Menjalankan riset untuk tanggal H-1: {tgl_info['display']} (WIB)")
+
     targets = baca_daftar_kompetitor()
     if not targets:
         print("⚠️ Tidak ada URL target yang ditemukan di competitors.txt.")
-        kirim_ke_telegram("⚠️ *Laporan Ads Transparency:*\nFile `competitors.txt` kosong atau belum berisi URL profil kompetitor.")
+        kirim_ke_telegram(f"⚠️ *Laporan Ads Transparency (H-1: {tgl_info['display']})*\nFile `competitors.txt` kosong.")
         return
 
     print(f"🎯 Ditemukan {len(targets)} target kompetitor di competitors.txt.")
@@ -227,7 +279,7 @@ def main():
 
         for target_url in targets:
             try:
-                items = scrape_advertiser(page, target_url)
+                items = scrape_advertiser(page, target_url, tgl_info)
                 all_scraped_items.extend(items)
             except Exception as e:
                 print(f"⚠️ Gagal scrape {target_url}: {e}")
@@ -235,18 +287,17 @@ def main():
         browser.close()
 
     ranked_products = hitung_performa_dan_rekomendasi(all_scraped_items)
-    tgl_hari_ini = datetime.now().strftime("%d %b %Y")
 
     if not ranked_products:
-        print("⚠️ Tidak ada produk materi iklan yang terdeteksi.")
+        print("⚠️ Tidak ada produk materi iklan yang terdeteksi pada H-1.")
         pesan_kosong = f"📊 *REKAP PERFORMA PRODUK TERPANTAU*\n"
-        pesan_kosong += f"📅 Update: {tgl_hari_ini}\n\n"
-        pesan_kosong += f"ℹ️ Robot berhasil mengecek {len(targets)} target pengiklan di Google Ads Transparency, namun tidak ada materi iklan yang aktif saat ini."
+        pesan_kosong += f"📅 *Periode Riset: H-1 (Kemarin, {tgl_info['display']})*\n\n"
+        pesan_kosong += f"ℹ️ Robot berhasil memeriksa {len(targets)} pengiklan, namun tidak menemukan materi iklan yang aktif pada tanggal kemarin ({tgl_info['display']})."
         kirim_ke_telegram(pesan_kosong)
         return
 
     pesan = f"📊 *REKAP PERFORMA PRODUK TERPANTAU*\n"
-    pesan += f"📅 Update: {tgl_hari_ini}\n"
+    pesan += f"📅 *Periode Riset: H-1 (Kemarin, {tgl_info['display']})*\n"
     pesan += f"🎯 Target: {len(targets)} Pengiklan\n\n"
 
     for idx, p in enumerate(ranked_products[:15], 1):
