@@ -1,0 +1,460 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ARA's Ads Scraper Sidebar</title>
+  <link rel="icon" type="image/png" href="icons/icon32.png">
+  <!-- Google Fonts: Baloo 2 & Plus Jakarta Sans for Neo-Brutalism -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@700;800;900&family=Plus+Jakarta+Sans:wght@500;600;700;800&display=swap" rel="stylesheet">
+  <style>
+    /* RESET & DASAR */
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+      overflow: hidden;
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      transition: background 0.2s, color 0.2s;
+    }
+
+    /* ============================================================
+       THEME ENGINE: MENGGUNAKAN CSS :has() (TANPA JAVASCRIPT)
+       ============================================================ */
+    
+    /* DEFAULT (Dark Slate) */
+    body {
+      --bg: #0f172a; --surface: #1e293b; --border: #334155; --text: #f8fafc; --muted: #94a3b8;
+      --primary: #2563eb; --success: #10b981; --danger: #ef4444; --danger-bg: rgba(239, 68, 68, 0.12);
+      --radius: 10px; --border-w: 1px; --font: 'Segoe UI', system-ui, sans-serif; --shadow: none;
+    }
+
+    /* 1. Modern SaaS */
+    body:has(#themeSelect option[value="theme-saas"]:checked) {
+      --bg: #f8fafc; --surface: #ffffff; --border: #cbd5e1; --text: #0f172a; --muted: #64748b;
+      --primary: #4f46e5; --success: #059669; --danger: #e11d48; --danger-bg: #ffe4e6;
+      --radius: 12px; --border-w: 1px; --font: 'Segoe UI', system-ui, sans-serif; --shadow: 0 4px 12px rgba(0,0,0,0.06);
+    }
+
+    /* 2. Cyberpunk */
+    body:has(#themeSelect option[value="theme-cyberpunk"]:checked) {
+      --bg: #050811; --surface: #0b1120; --border: #06b6d4; --text: #a5f3fc; --muted: #0891b2;
+      --primary: #06b6d4; --success: #10b981; --danger: #f43f5e; --danger-bg: rgba(244, 63, 94, 0.2);
+      --radius: 0px; --border-w: 1.5px; --font: 'Consolas', 'Courier New', monospace; --shadow: 0 0 10px rgba(6,182,212,0.3);
+    }
+
+    /* 3. Compact Grid */
+    body:has(#themeSelect option[value="theme-compact"]:checked) {
+      --bg: #111827; --surface: #1f2937; --border: #374151; --text: #f9fafb; --muted: #9ca3af;
+      --primary: #3b82f6; --success: #10b981; --danger: #ef4444; --danger-bg: rgba(239, 68, 68, 0.12);
+      --radius: 4px; --border-w: 1px; --font: system-ui, sans-serif; --shadow: none;
+    }
+
+    /* 4. Glassmorphism */
+    body:has(#themeSelect option[value="theme-glass"]:checked) {
+      --bg: #1e1b4b; --surface: rgba(255, 255, 255, 0.08); --border: rgba(255, 255, 255, 0.2); --text: #ffffff; --muted: #cbd5e1;
+      --primary: #6366f1; --success: #10b981; --danger: #f43f5e; --danger-bg: rgba(244, 63, 94, 0.25);
+      --radius: 16px; --border-w: 1px; --font: 'Segoe UI', system-ui, sans-serif; --shadow: 0 8px 32px rgba(0,0,0,0.37);
+    }
+
+    /* 5. Executive Fintech */
+    body:has(#themeSelect option[value="theme-fintech"]:checked) {
+      --bg: #0a192f; --surface: #112240; --border: #233554; --text: #ccd6f6; --muted: #8892b0;
+      --primary: #059669; --success: #10b981; --danger: #f59e0b; --danger-bg: rgba(245, 158, 11, 0.15);
+      --radius: 4px; --border-w: 1px; --font: 'Segoe UI', system-ui, sans-serif; --shadow: 0 4px 10px rgba(2,12,27,0.7);
+    }
+
+    /* 6. Minimal Flat */
+    body:has(#themeSelect option[value="theme-minimal"]:checked) {
+      --bg: #ffffff; --surface: #ffffff; --border: #18181b; --text: #09090b; --muted: #71717a;
+      --primary: #18181b; --success: #27272a; --danger: #dc2626; --danger-bg: #fee2e2;
+      --radius: 0px; --border-w: 1.5px; --font: system-ui, sans-serif; --shadow: none;
+    }
+
+    /* 7. Material You */
+    body:has(#themeSelect option[value="theme-material"]:checked) {
+      --bg: #f5eeff; --surface: #ffffff; --border: #e9d5ff; --text: #2e1065; --muted: #6b21a8;
+      --primary: #7c3aed; --success: #059669; --danger: #db2777; --danger-bg: #fce7f3;
+      --radius: 20px; --border-w: 1px; --font: system-ui, sans-serif; --shadow: 0 2px 8px rgba(124,58,237,0.1);
+    }
+
+    /* 8. Neumorphism */
+    body:has(#themeSelect option[value="theme-neumorphism"]:checked) {
+      --bg: #e2e8f0; --surface: #e2e8f0; --border: #cbd5e1; --text: #1e293b; --muted: #64748b;
+      --primary: #3b82f6; --success: #10b981; --danger: #ef4444; --danger-bg: rgba(239, 68, 68, 0.12);
+      --radius: 12px; --border-w: 1px; --font: 'Segoe UI', system-ui, sans-serif; --shadow: 4px 4px 8px #cbd5e1, -4px -4px 8px #f8fafc;
+    }
+
+    /* 9. Retro 8-Bit */
+    body:has(#themeSelect option[value="theme-retro"]:checked) {
+      --bg: #000000; --surface: #18181b; --border: #eab308; --text: #4ade80; --muted: #facc15;
+      --primary: #ec4899; --success: #22c55e; --danger: #ef4444; --danger-bg: #000000;
+      --radius: 0px; --border-w: 2px; --font: 'Courier New', monospace; --shadow: 4px 4px 0px #eab308;
+    }
+
+    /* 10. Brutalism */
+    body:has(#themeSelect option[value="theme-brutalism"]:checked),
+    body.theme-brutalism {
+      --bg: #fffbeb; --surface: #ffffff; --border: #000000; --text: #000000; --muted: #4b5563;
+      --primary: #2563eb; --success: #16a34a; --danger: #dc2626; --danger-bg: #fee2e2;
+      --radius: 0px; --border-w: 2.5px; --font: 'Arial Black', Impact, sans-serif; --shadow: 4px 4px 0px #000000;
+    }
+
+    /* 11. Neo Brutalism / Pop Brutalism (Style Lynk.id iruel13) */
+    body:has(#themeSelect option[value="theme-neobrutalism"]:checked),
+    body.theme-neobrutalism {
+      --bg: #fffaf3; --surface: #ffffff; --border: #16120f; --text: #16120f; --muted: #5b524c;
+      --primary: #ff6a13; --success: #3fd4c0; --danger: #ff9ec4; --danger-bg: #ffeaf3;
+      --radius: 14px; --border-w: 2.5px; --font: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif; --shadow: 4px 4px 0px #16120f;
+    }
+
+    /* APLIKASI VARIABEL KE ELEMEN */
+    body {
+      background-color: var(--bg) !important;
+      color: var(--text) !important;
+      font-family: var(--font) !important;
+    }
+
+    .card, .status-container {
+      background: var(--surface);
+      border: var(--border-w) solid var(--border);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+    }
+
+    .header-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; flex-shrink: 0; }
+    h1.app-title { display: flex; align-items: center; gap: 8px; font-size: 15px; font-weight: 700; color: var(--text); }
+    
+    .theme-select {
+      background: var(--surface);
+      color: var(--text);
+      border: var(--border-w) solid var(--border);
+      border-radius: var(--radius);
+      padding: 5px 8px;
+      font-size: 11px;
+      font-family: inherit;
+      outline: none;
+      cursor: pointer;
+    }
+
+    .card { padding: 14px; margin-bottom: 14px; display: flex; flex-direction: column; gap: 10px; flex-shrink: 0; }
+    .card-title { font-size: 11px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; }
+
+    .input-wrapper { display: flex; flex-direction: column; gap: 6px; }
+    .input-header { display: flex; justify-content: space-between; align-items: center; }
+    .input-header label { font-size: 11px; color: var(--muted); font-weight: 500; }
+    .btn-refresh-date { background: transparent; border: none; color: var(--primary); cursor: pointer; display: inline-flex; align-items: center; }
+
+    .input-field {
+      background: transparent;
+      border: var(--border-w) solid var(--border);
+      color: var(--text);
+      padding: 9px 12px;
+      border-radius: var(--radius);
+      font-size: 13px;
+      font-family: inherit;
+      width: 100%;
+      outline: none;
+    }
+
+    .checkbox-wrapper {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      background: transparent;
+      padding: 8px 12px;
+      border-radius: var(--radius);
+      font-size: 13px;
+      border: var(--border-w) solid var(--border);
+      cursor: pointer;
+      color: var(--text);
+    }
+    .checkbox-wrapper input[type="checkbox"] { accent-color: var(--primary); }
+
+    .btn {
+      width: 100%;
+      padding: 10px 12px;
+      border: var(--border-w) solid var(--border);
+      border-radius: var(--radius);
+      font-size: 13px;
+      font-weight: 700;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      color: #ffffff;
+      font-family: inherit;
+      transition: opacity 0.15s;
+    }
+    .btn:hover { opacity: 0.9; }
+    .btn-primary { background: var(--primary); border-color: var(--primary); color: #ffffff; }
+    .btn-success { background: var(--success); border-color: var(--success); color: #ffffff; }
+    .btn-danger-outline { background: var(--danger-bg); border-color: var(--danger); color: var(--danger); }
+    .btn-danger-solid { background: var(--danger); border-color: var(--danger); color: #ffffff; animation: pulse-danger 1.5s infinite; }
+    @keyframes pulse-danger { 0%, 100% { opacity: 1; } 50% { opacity: 0.85; } }
+    .btn-outline { background: transparent; border: var(--border-w) solid var(--border); color: var(--text); }
+
+    .status-container { flex-grow: 1; overflow-y: auto; padding: 14px; display: flex; flex-direction: column; }
+    .status-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+    .badge { background: var(--primary); color: #ffffff; padding: 2px 8px; border-radius: 12px; font-size: 11px; }
+
+    #urlList { display: flex; flex-direction: column; gap: 8px; }
+    .status-text { text-align: center; color: var(--muted); font-size: 12px; margin-top: 24px; }
+
+    .url-card {
+      background: transparent;
+      border: var(--border-w) solid var(--border);
+      border-radius: var(--radius);
+      padding: 8px 10px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 10px;
+    }
+    .url-content { display: flex; align-items: center; overflow: hidden; flex-grow: 1; gap: 8px; }
+    .url-count { font-size: 11px; font-weight: 700; background: var(--primary); color: #ffffff; padding: 2px 6px; border-radius: 4px; flex-shrink: 0; }
+    .url-text { font-size: 12px; word-break: break-all; color: var(--text); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+    .btn-icon { background: transparent; border: var(--border-w) solid var(--border); border-radius: 6px; width: 30px; height: 30px; display: inline-flex; align-items: center; justify-content: center; cursor: pointer; color: var(--muted); flex-shrink: 0; }
+    ::-webkit-scrollbar { width: 6px; }
+    ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+
+    /* ============================================================
+       NEO BRUTALISM SPECIALIZED STYLES (STYLE LYNK.ID IRUEL13)
+       ============================================================ */
+    body:has(#themeSelect option[value="theme-neobrutalism"]:checked),
+    body.theme-neobrutalism {
+      background-image: 
+        linear-gradient(rgba(22, 18, 15, 0.06) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(22, 18, 15, 0.06) 1px, transparent 1px);
+      background-size: 22px 22px;
+    }
+
+    body:has(#themeSelect option[value="theme-neobrutalism"]:checked) .window-dots,
+    body.theme-neobrutalism .window-dots {
+      display: flex !important;
+    }
+
+    body:has(#themeSelect option[value="theme-neobrutalism"]:checked) h1.app-title,
+    body.theme-neobrutalism h1.app-title {
+      font-family: 'Baloo 2', 'Plus Jakarta Sans', sans-serif;
+      font-weight: 900;
+      font-size: 16px;
+      letter-spacing: -0.2px;
+    }
+
+    body:has(#themeSelect option[value="theme-neobrutalism"]:checked) .btn,
+    body.theme-neobrutalism .btn {
+      font-family: 'Baloo 2', 'Plus Jakarta Sans', sans-serif;
+      font-weight: 800;
+      font-size: 13.5px;
+      letter-spacing: 0.3px;
+      border: 2.5px solid #16120f;
+      border-radius: 12px;
+      box-shadow: 3px 3px 0 #16120f;
+      transition: all 0.12s ease;
+      color: #16120f;
+    }
+
+    body:has(#themeSelect option[value="theme-neobrutalism"]:checked) .btn:hover,
+    body.theme-neobrutalism .btn:hover {
+      transform: translate(2px, 2px);
+      box-shadow: 1px 1px 0 #16120f;
+      opacity: 1;
+    }
+
+    body:has(#themeSelect option[value="theme-neobrutalism"]:checked) .btn:active,
+    body.theme-neobrutalism .btn:active {
+      transform: translate(3px, 3px);
+      box-shadow: 0 0 0 #16120f;
+    }
+
+    body:has(#themeSelect option[value="theme-neobrutalism"]:checked) .btn-primary,
+    body.theme-neobrutalism .btn-primary {
+      background: #ff6a13;
+      color: #ffffff;
+    }
+    body:has(#themeSelect option[value="theme-neobrutalism"]:checked) .btn-primary:hover,
+    body.theme-neobrutalism .btn-primary:hover {
+      background: #e85a07;
+    }
+
+    body:has(#themeSelect option[value="theme-neobrutalism"]:checked) .btn-success,
+    body.theme-neobrutalism .btn-success {
+      background: #ffd23f;
+      color: #16120f;
+    }
+    body:has(#themeSelect option[value="theme-neobrutalism"]:checked) .btn-success:hover,
+    body.theme-neobrutalism .btn-success:hover {
+      background: #f5c422;
+    }
+
+    body:has(#themeSelect option[value="theme-neobrutalism"]:checked) .btn-danger-outline,
+    body.theme-neobrutalism .btn-danger-outline {
+      background: #ffeaf3;
+      color: #16120f;
+      border-color: #16120f;
+    }
+
+    body:has(#themeSelect option[value="theme-neobrutalism"]:checked) .btn-outline,
+    body.theme-neobrutalism .btn-outline {
+      background: #ffffff;
+      color: #16120f;
+      border-color: #16120f;
+    }
+
+    body:has(#themeSelect option[value="theme-neobrutalism"]:checked) .card,
+    body:has(#themeSelect option[value="theme-neobrutalism"]:checked) .status-container,
+    body.theme-neobrutalism .card,
+    body.theme-neobrutalism .status-container {
+      background: #ffffff;
+      border: 2.5px solid #16120f;
+      border-radius: 16px;
+      box-shadow: 4px 4px 0 #16120f;
+    }
+
+    body:has(#themeSelect option[value="theme-neobrutalism"]:checked) .card-title,
+    body.theme-neobrutalism .card-title {
+      font-family: 'Baloo 2', sans-serif;
+      font-weight: 900;
+      font-size: 12px;
+      letter-spacing: 0.8px;
+      color: #16120f;
+    }
+
+    body:has(#themeSelect option[value="theme-neobrutalism"]:checked) .input-field,
+    body:has(#themeSelect option[value="theme-neobrutalism"]:checked) .checkbox-wrapper,
+    body:has(#themeSelect option[value="theme-neobrutalism"]:checked) .theme-select,
+    body.theme-neobrutalism .input-field,
+    body.theme-neobrutalism .checkbox-wrapper,
+    body.theme-neobrutalism .theme-select {
+      background: #ffffff;
+      border: 2px solid #16120f;
+      border-radius: 10px;
+      color: #16120f;
+      font-weight: 700;
+      box-shadow: 2px 2px 0 #16120f;
+    }
+
+    body:has(#themeSelect option[value="theme-neobrutalism"]:checked) .url-card,
+    body.theme-neobrutalism .url-card {
+      background: #ffffff;
+      border: 2px solid #16120f;
+      border-radius: 12px;
+      box-shadow: 3px 3px 0 #16120f;
+      padding: 10px 12px;
+    }
+
+    body:has(#themeSelect option[value="theme-neobrutalism"]:checked) .url-count,
+    body.theme-neobrutalism .url-count {
+      background: #ffd23f;
+      color: #16120f;
+      border: 2px solid #16120f;
+      border-radius: 6px;
+      font-family: 'Baloo 2', sans-serif;
+      font-size: 12px;
+      font-weight: 900;
+      box-shadow: 1px 1px 0 #16120f;
+    }
+
+    body:has(#themeSelect option[value="theme-neobrutalism"]:checked) .btn-icon,
+    body.theme-neobrutalism .btn-icon {
+      background: #fffaf3;
+      border: 2px solid #16120f;
+      border-radius: 8px;
+      color: #16120f;
+      box-shadow: 2px 2px 0 #16120f;
+    }
+
+    body:has(#themeSelect option[value="theme-neobrutalism"]:checked) #countBadge,
+    body.theme-neobrutalism #countBadge {
+      background: #3fd4c0;
+      color: #16120f;
+      border: 2px solid #16120f;
+      font-weight: 900;
+      box-shadow: 2px 2px 0 #16120f;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Decorative Window Dots for Neo-Brutalism -->
+  <div class="window-dots" style="display: none; justify-content: flex-start; gap: 6px; margin-bottom: 10px;">
+    <span class="dot" style="width: 11px; height: 11px; border-radius: 50%; border: 2px solid #16120f; background: #3fd4c0; display: inline-block;"></span>
+    <span class="dot" style="width: 11px; height: 11px; border-radius: 50%; border: 2px solid #16120f; background: #ff9ec4; display: inline-block;"></span>
+    <span class="dot" style="width: 11px; height: 11px; border-radius: 50%; border: 2px solid #16120f; background: #b9a6ff; display: inline-block;"></span>
+    <span class="dot" style="width: 11px; height: 11px; border-radius: 50%; border: 2px solid #16120f; background: #ff6a13; display: inline-block;"></span>
+  </div>
+
+  <header class="header-row">
+    <h1 class="app-title">
+      <img src="icons/icon32.png" width="20" height="20" style="border-radius: 5px; display: inline-block;" alt="Icon">
+      ARA's Scrapper <span style="font-size:10px; opacity:0.6; font-weight:400; padding:1px 5px; border-radius:4px; border:1px solid var(--border);">v5.8</span>
+    </h1>
+    
+    <select id="themeSelect" class="theme-select">
+      <option value="theme-default">Default Dark</option>
+      <option value="theme-neobrutalism">✨ Neo Brutalism (Pop)</option>
+      <option value="theme-saas">1. Modern SaaS</option>
+      <option value="theme-cyberpunk">2. Cyberpunk</option>
+      <option value="theme-compact">3. Compact Grid</option>
+      <option value="theme-glass">4. Glassmorphism</option>
+      <option value="theme-fintech">5. Exec Fintech</option>
+      <option value="theme-minimal">6. Minimal Flat</option>
+      <option value="theme-material">7. Material You</option>
+      <option value="theme-neumorphism">8. Neumorphism</option>
+      <option value="theme-retro">9. Retro 8-Bit</option>
+      <option value="theme-brutalism">10. Classic Brutalism</option>
+    </select>
+  </header>
+
+  <main class="card">
+    <div class="card-title">Kontrol Utama</div>
+    
+    <div class="input-wrapper">
+      <div class="input-header">
+        <label for="inputDate">Tanggal Scan:</label>
+        <button id="btnRefreshDate" class="btn-refresh-date" type="button" title="Tarik Ulang Tanggal">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.2"/>
+          </svg>
+        </button>
+      </div>
+      <input type="text" id="inputDate" class="input-field" placeholder="Otomatis / Ubah Manual" spellcheck="false">
+    </div>
+
+    <label class="checkbox-wrapper" for="autoScrollCheck">
+      <input type="checkbox" id="autoScrollCheck" checked>
+      <span>Auto-scroll (Recommended)</span>
+    </label>
+
+    <label class="checkbox-wrapper" for="extractYoutubeCheck">
+      <input type="checkbox" id="extractYoutubeCheck" checked>
+      <span>Ekstrak Video YouTube Iklan</span>
+    </label>
+
+    <button id="btnScrape" class="btn btn-primary" type="button">▶ Mulai Scan</button>
+    <button id="btnStopScrape" class="btn btn-danger-solid" type="button" style="display: none;">⏹ Stop & Ambil Sekarang</button>
+    <button id="btnDashboard" class="btn btn-success" type="button">📊 Buka Dashboard</button>
+    <button id="btnClear" class="btn btn-danger-outline" type="button">🗑 Bersihkan Semua Data</button>
+
+    <button id="btnCopyAll" class="btn btn-outline" type="button" style="display: none;">📋 Copy All URL</button>
+  </main>
+
+  <section class="status-container">
+    <div class="card-title status-header">
+      <span>Status Scan Terakhir</span>
+      <span id="countBadge" class="badge" style="display: none;">0</span>
+    </div>
+    <div id="urlList">
+      <div class="status-text">Menunggu instruksi. Silakan klik Mulai Scan.</div>
+    </div>
+  </section>
+  
+  <script src="sidebar.js"></script>
+</body>
+</html>

@@ -1,0 +1,30 @@
+[
+  {
+    "id": 1,
+    "priority": 1,
+    "action": {
+      "type": "modifyHeaders",
+      "requestHeaders": [
+        {
+          "header": "Origin",
+          "operation": "set",
+          "value": "https://adstransparency.google.com"
+        },
+        {
+          "header": "Referer",
+          "operation": "set",
+          "value": "https://adstransparency.google.com/"
+        },
+        {
+          "header": "sec-fetch-site",
+          "operation": "set",
+          "value": "same-origin"
+        }
+      ]
+    },
+    "condition": {
+      "urlFilter": "||adstransparency.google.com/anji/_/rpc/*",
+      "resourceTypes": ["xmlhttprequest"]
+    }
+  }
+]
