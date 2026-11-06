@@ -1,6 +1,7 @@
 import os
 import sys
 import re
+import csv
 import asyncio
 import requests
 from urllib.parse import urlparse, parse_qs
@@ -17,6 +18,7 @@ def get_kemarin_dates():
     return {
         "iso": kemarin_wib.strftime("%Y-%m-%d"),
         "display": kemarin_wib.strftime("%d %b %Y"),
+        "file_date": kemarin_wib.strftime("%Y%m%d"),
         "hari_ini_display": now_wib.strftime("%d %b %Y")
     }
 
@@ -63,7 +65,6 @@ async def scrape_target(page, target_raw, tgl_info):
     kemarin_iso = tgl_info["iso"]
     captured_ads = []
     detected_brand_name = target_raw
-    seen_urls = set()
 
     # Network listener untuk menangkap destination_url asli & YouTube ID
     async def handle_response(response):
@@ -155,7 +156,6 @@ async def scrape_target(page, target_raw, tgl_info):
                 await page.wait_for_timeout(400)
                 await page.keyboard.press("Enter")
 
-            # Tunggu kartu iklan termuat di layar
             try:
                 await page.wait_for_selector('creative-preview, a[href*="/creative/"]', timeout=10000)
                 print("✅ Hasil pencarian iklan berhasil dimuat!")
@@ -170,7 +170,7 @@ async def scrape_target(page, target_raw, tgl_info):
         await page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
         await page.wait_for_timeout(900)
 
-    # 3. Ekstraksi kartu iklan secara mendalam HANYA dari elemen creative
+    # 3. Ekstraksi kartu iklan murni dari DOM & ShadowRoot
     print("🔎 [3/3] Membaca kartu materi iklan murni dari layar...")
     try:
         dom_cards = await page.evaluate("""() => {
@@ -180,13 +180,11 @@ async def scrape_target(page, target_raw, tgl_info):
             function scan(root) {
                 if (!root) return;
                 
-                // Cari HANYA kartu materi iklan (creative-preview atau link creative)
                 const elements = root.querySelectorAll('creative-preview, a[href*="/creative/"]');
                 elements.forEach(el => {
                     let text = el.innerText || el.textContent || '';
                     let href = el.href || el.getAttribute('href') || '';
                     
-                    // Ambil ID YouTube dari gambar thumbnail
                     let ytId = '';
                     const imgs = el.querySelectorAll('img');
                     imgs.forEach(img => {
@@ -195,7 +193,6 @@ async def scrape_target(page, target_raw, tgl_info):
                         if (m) ytId = m[1];
                     });
 
-                    // Cek iframe di dalam kartu jika ada
                     const iframes = el.querySelectorAll('iframe');
                     iframes.forEach(f => {
                         const src = f.src || f.getAttribute('src') || '';
@@ -203,7 +200,6 @@ async def scrape_target(page, target_raw, tgl_info):
                         if (m) ytId = m[1];
                     });
 
-                    // Filter teks agar murni judul produk (abaikan teks sistem Google)
                     const lines = text.split('\\n').map(l => l.trim()).filter(l => l.length > 5);
                     const validLines = lines.filter(l => 
                         !l.toLowerCase().includes('terverifikasi') &&
@@ -233,7 +229,6 @@ async def scrape_target(page, target_raw, tgl_info):
                     }
                 });
 
-                // Scan shadow DOM
                 const all = root.querySelectorAll('*');
                 all.forEach(el => {
                     if (el.shadowRoot) scan(el.shadowRoot);
@@ -254,7 +249,6 @@ async def scrape_target(page, target_raw, tgl_info):
             if lk.startswith("/"):
                 lk = f"https://adstransparency.google.com{lk}"
 
-            # Pasangkan YouTube URL jika ada yang cocok
             captured_ads.append({
                 "url": lk,
                 "headline": hl or "Materi Iklan Video",
@@ -275,10 +269,8 @@ def hitung_performa_dan_rekomendasi(all_items):
         headline = item.get("headline", "").strip()
         yt_url = item.get("youtubeUrl", "-")
 
-        # Bersihkan headline
         clean_headline = re.sub(r'^(Sponsored|Disponsori|Iklan|00:00)\s*', '', headline, flags=re.I).strip()
         
-        # Nama produk
         nama_produk = clean_headline
         if not nama_produk or len(nama_produk) < 4:
             path_parts = [p for p in urlparse(raw_url).path.split("/") if p]
@@ -290,7 +282,6 @@ def hitung_performa_dan_rekomendasi(all_items):
         if len(nama_produk) > 55:
             nama_produk = nama_produk[:52] + "..."
 
-        # Kunci agregasi
         agg_key = nama_produk if nama_produk != "Produk Unggulan" else (yt_url if yt_url != "-" else raw_url)
 
         if agg_key not in product_map:
@@ -307,11 +298,9 @@ def hitung_performa_dan_rekomendasi(all_items):
 
         product_map[agg_key]["totalTayangan"] += 1
 
-        # Lengkapi URL YT jika sebelumnya kosong
         if product_map[agg_key]["youtubeUrl"] == "-" and yt_url != "-":
             product_map[agg_key]["youtubeUrl"] = yt_url
 
-        # Lengkapi URL jika sebelumnya masih adstransparency
         if "adstransparency.google.com" in product_map[agg_key]["url"] and "adstransparency.google.com" not in raw_url:
             product_map[agg_key]["url"] = raw_url
 
@@ -319,6 +308,7 @@ def hitung_performa_dan_rekomendasi(all_items):
     if not products:
         return []
 
+    # Perhitungan Skor Relatif berdasarkan volume penayangan iklan
     max_tayangan = max(p["totalTayangan"] for p in products) or 1
 
     for p in products:
@@ -334,8 +324,26 @@ def hitung_performa_dan_rekomendasi(all_items):
         else:
             p["rek"] = "Cadangan"
 
+    # Peringkat #1 adalah yang memiliki total tayangan / materi terbanyak
     products.sort(key=lambda x: x["totalTayangan"], reverse=True)
     return products
+
+def simpan_ke_csv(products, filename):
+    """Menyimpan SELURUH data produk ke file CSV (UTF-8 with BOM agar langsung rapi di Excel)"""
+    with open(filename, mode='w', newline='', encoding='utf-8-sig') as f:
+        writer = csv.writer(f)
+        writer.writerow(["Rank", "Nama Produk", "Brand / Pengiklan", "Total Tayangan", "Skor Performa", "Rekomendasi", "URL Landing Page", "Link YouTube"])
+        for idx, p in enumerate(products, 1):
+            writer.writerow([
+                f"#{idx}",
+                p["nama"],
+                p["brand"],
+                p["totalTayangan"],
+                p["skor"],
+                p["rek"],
+                p["url"],
+                p["youtubeUrl"]
+            ])
 
 def kirim_ke_telegram(pesan):
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
@@ -348,11 +356,31 @@ def kirim_ke_telegram(pesan):
     try:
         resp = requests.post(url, json=payload, timeout=20)
         if resp.status_code == 200:
-            print("✅ Berhasil kirim rekap ke Telegram!")
+            print("✅ Berhasil kirim pesan teks ke Telegram!")
         else:
-            print(f"❌ Gagal kirim Telegram (Status {resp.status_code}): {resp.text}")
+            print(f"❌ Gagal kirim Telegram: {resp.text}")
     except Exception as e:
         print(f"❌ Error koneksi ke Telegram API: {e}")
+
+def kirim_file_ke_telegram(file_path, caption):
+    """Mengirim file CSV dokumen langsung ke Telegram"""
+    print(f"📎 Mengirim file lampiran: {file_path} ke Telegram...")
+    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendDocument"
+    try:
+        with open(file_path, "rb") as f:
+            files = {"document": f}
+            data = {
+                "chat_id": TELEGRAM_CHAT_ID,
+                "caption": caption,
+                "parse_mode": "Markdown"
+            }
+            resp = requests.post(url, data=data, files=files, timeout=30)
+            if resp.status_code == 200:
+                print("✅ Berhasil kirim file CSV ke Telegram!")
+            else:
+                print(f"❌ Gagal kirim file ke Telegram: {resp.text}")
+    except Exception as e:
+        print(f"❌ Error kirim file: {e}")
 
 async def async_main():
     periksa_kredensial()
@@ -398,18 +426,23 @@ async def async_main():
         kirim_ke_telegram(pesan_kosong)
         return
 
-    # Kirim Top 25 Produk (Dibagi per 12 produk agar muat rapi di Telegram tanpa terpotong)
+    # 1. Buat & Simpan File CSV Lengkap (Seluruh Produk, misal 214 produk)
+    csv_filename = f"Rekap_Iklan_H1_{tgl_info['file_date']}.csv"
+    simpan_ke_csv(ranked_products, csv_filename)
+
+    # 2. Kirim Pesan Teks: Khusus TOP 25 Produk Pemenang
     limit_products = ranked_products[:25]
-    total_batch = (len(limit_products) + 11) // 12
+    total_batch = (len(limit_products) + 12) // 13  # Dibagi 2 pesan (13 & 12 produk)
 
     for batch_idx in range(total_batch):
-        chunk = limit_products[batch_idx * 12 : (batch_idx + 1) * 12]
+        chunk = limit_products[batch_idx * 13 : (batch_idx + 1) * 13]
         
         pesan = f"📊 *REKAP PERFORMA PRODUK TERPANTAU* (Bagian {batch_idx + 1}/{total_batch})\n"
         pesan += f"📅 *Periode Riset: H-1 (Kemarin, {tgl_info['display']})*\n"
-        pesan += f"🎯 Target: {len(targets)} Pengiklan | Total Produk: {len(ranked_products)}\n\n"
+        pesan += f"🎯 Target: {len(targets)} Pengiklan | Total Terdata: {len(ranked_products)} Produk\n"
+        pesan += f"🏆 *Menampilkan Top 25 Produk Paling Aktif*\n\n"
 
-        start_num = (batch_idx * 12) + 1
+        start_num = (batch_idx * 13) + 1
         for idx, p in enumerate(chunk, start_num):
             pesan += f"━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
             pesan += f"*{idx}. [Rank #{idx}] {p['nama']}*\n"
@@ -421,6 +454,18 @@ async def async_main():
 
         kirim_ke_telegram(pesan)
         await asyncio.sleep(1)
+
+    # 3. Kirim File CSV Lampiran Berisi SELURUH Data Lengkap
+    caption_csv = f"📁 *DATA LENGKAP {len(ranked_products)} PRODUK TERPANTAU*\n"
+    caption_csv += f"📅 Periode: {tgl_info['display']}\n"
+    caption_csv += f"💡 _Buka file ini di Excel/Google Sheet untuk melihat seluruh link, video, dan performa 214 produk secara komprehensif._"
+    kirim_file_ke_telegram(csv_filename, caption_csv)
+
+    # Hapus file lokal setelah terkirim
+    try:
+        os.remove(csv_filename)
+    except Exception:
+        pass
 
 def main():
     asyncio.run(async_main())
