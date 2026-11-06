@@ -328,13 +328,14 @@ def hitung_performa_dan_rekomendasi(all_items):
     products.sort(key=lambda x: x["totalTayangan"], reverse=True)
     return products
 
-def simpan_ke_csv(products, filename):
+def simpan_ke_csv(products, filename, tanggal_str):
     """Menyimpan SELURUH data produk ke file CSV (UTF-8 with BOM agar langsung rapi di Excel)"""
     with open(filename, mode='w', newline='', encoding='utf-8-sig') as f:
         writer = csv.writer(f)
-        writer.writerow(["Rank", "Nama Produk", "Brand / Pengiklan", "Total Tayangan", "Skor Performa", "Rekomendasi", "URL Landing Page", "Link YouTube"])
+        writer.writerow(["Tanggal", "Rank", "Nama Produk", "Brand / Pengiklan", "Total Tayangan", "Skor Performa", "Rekomendasi", "URL Landing Page", "Link YouTube"])
         for idx, p in enumerate(products, 1):
             writer.writerow([
+                tanggal_str,
                 f"#{idx}",
                 p["nama"],
                 p["brand"],
@@ -428,7 +429,7 @@ async def async_main():
 
     # 1. Buat & Simpan File CSV Lengkap (Seluruh Produk, misal 214 produk)
     csv_filename = f"Rekap_Iklan_H1_{tgl_info['file_date']}.csv"
-    simpan_ke_csv(ranked_products, csv_filename)
+    simpan_ke_csv(ranked_products, csv_filename, tgl_info['display'])
 
     # 2. Kirim Pesan Teks: Khusus TOP 25 Produk Pemenang
     limit_products = ranked_products[:25]
