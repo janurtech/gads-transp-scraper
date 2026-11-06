@@ -69,7 +69,7 @@ async def scrape_target(page, target_raw, tgl_info):
     captured_ads = []
     detected_brand_name = target_raw
 
-    # Handler network response non-blocking
+    # Handler network response non-blocking untuk mencegat destination_url asli
     async def handle_response(response):
         url = response.url
         if "displayads-formats.googleusercontent.com" in url or "GetCreativeById" in url:
@@ -99,7 +99,6 @@ async def scrape_target(page, target_raw, tgl_info):
 
     page.on("response", handle_response)
 
-    # 1. Navigasi Halaman
     is_url = target_raw.startswith("http://") or target_raw.startswith("https://")
 
     if is_url:
@@ -107,99 +106,147 @@ async def scrape_target(page, target_raw, tgl_info):
         if "start-date=" not in target_url and "start_date=" not in target_url:
             sep = "&" if "?" in target_url else "?"
             target_url = f"{target_url}{sep}start-date={kemarin_iso}&end-date={kemarin_iso}"
-        print(f"\n🔍 [1/3] Membuka URL: {target_url}")
+        print(f"\n🔍 [1/3] Mengunjungi URL: {target_url}")
         await page.goto(target_url, wait_until="domcontentloaded", timeout=45000)
+        await page.wait_for_timeout(3000)
     else:
-        # Buka beranda Ads Transparency dengan filter tanggal H-1
+        # Buka Ads Transparency dengan filter tanggal H-1
         base_url = f"https://adstransparency.google.com/?region=ID&start-date={kemarin_iso}&end-date={kemarin_iso}"
-        print(f"\n🔍 [1/3] Mencari: '{target_raw}' di Google Ads Transparency...")
+        print(f"\n🔍 [1/3] Membuka beranda: {base_url}")
         await page.goto(base_url, wait_until="domcontentloaded", timeout=45000)
-        await page.wait_for_timeout(2000)
+        await page.wait_for_timeout(3000)
 
-        # Cari kolom pencarian dan ketik nama target
+        # Cari input dan ketik nama kompetitor dengan sequential typing
         search_input = page.locator("input[type='text'], input[role='combobox']").first
         if await search_input.count() > 0:
+            print(f"⌨️ Mengetik nama target: '{target_raw}'...")
             await search_input.click()
-            await search_input.fill(target_raw)
-            await page.wait_for_timeout(1500)
+            await search_input.fill("")
+            await search_input.press_sequentially(target_raw, delay=70)
+            await page.wait_for_timeout(2000)
 
-            # Pilih opsi pertama (Agregasi seluruh akun pengiklan)
-            await page.keyboard.press("ArrowDown")
-            await page.wait_for_timeout(300)
-            await page.keyboard.press("Enter")
-            await page.wait_for_timeout(3000)
-            print(f"🎯 Memuat hasil agregasi untuk: {target_raw}")
+            # Tunggu dan klik dropdown autocomplete (Agregasi seluruh akun pengiklan)
+            clicked = False
+            try:
+                await page.wait_for_selector('[role="option"], [class*="suggestion"], material-select-item', timeout=6000)
+                option = page.locator('[role="option"], [class*="suggestion"], material-select-item').first
+                if await option.count() > 0:
+                    text_opt = await option.text_content()
+                    print(f"👉 Mengklik suggestion menu: {text_opt.strip()[:40]}...")
+                    await option.click()
+                    clicked = True
+                    await page.wait_for_timeout(4000)
+            except Exception as e:
+                print(f"ℹ️ Opsi dropdown tidak langsung terklik via selector: {e}")
 
-    # Ambil judul dari halaman jika ada
-    try:
-        h_el = page.locator("h1, .advertiser-name, [role='heading']").first
-        if await h_el.count() > 0:
-            detected_brand_name = (await h_el.text_content()).strip()
-    except Exception:
-        pass
-    print(f"🏢 Pengiklan: {detected_brand_name}")
+            if not clicked:
+                print("⌨️ Menekan tombol ArrowDown + Enter...")
+                await page.keyboard.press("ArrowDown")
+                await page.wait_for_timeout(400)
+                await page.keyboard.press("Enter")
+                await page.wait_for_timeout(4000)
 
-    # 2. Auto-Scroll Terkendali (15 kali scroll, total ~20 detik)
+    print(f"📄 Halaman aktif: {page.url}")
+
+    # 2. Auto-scroll untuk memicu pemuatan materi iklan (~400 iklan)
     print("⏳ [2/3] Sedang auto-scroll memuat materi iklan...")
-    max_scrolls = 15
-    for i in range(max_scrolls):
+    for _ in range(15):
         await page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
-        await page.wait_for_timeout(1000)
+        await page.wait_for_timeout(800)
 
-    # 3. Ekstraksi kartu iklan dari DOM (termasuk Shadow DOM)
-    print("🔎 [3/3] Membaca kartu materi iklan yang termuat...")
+    # 3. Ekstraksi kartu iklan secara mendalam dari DOM & ShadowRoot
+    print("🔎 [3/3] Membaca kartu materi iklan dari halaman...")
     try:
         dom_cards = await page.evaluate("""() => {
-            const list = [];
-            function scanNode(root) {
+            const results = [];
+            const seen = new Set();
+            
+            function scan(root) {
                 if (!root) return;
-                const elements = root.querySelectorAll('creative-preview, [data-creative-id], .creative-card, a[href*="/creative/"]');
-                elements.forEach(c => {
-                    let text = c.textContent ? c.textContent.trim() : '';
-                    let href = c.href || c.getAttribute('href') || '';
-                    let ytId = '';
-                    const img = c.querySelector('img[src*="ytimg.com/vi/"]');
-                    if (img) {
-                        const m = img.src.match(/ytimg\\.com\\/vi\\/([a-zA-Z0-9_-]{11})/);
-                        if (m) ytId = m[1];
-                    }
-                    if (text || href || ytId) {
-                        list.push({ text: text.substring(0, 100), href, ytId });
-                    }
-                });
                 
                 const all = root.querySelectorAll('*');
                 all.forEach(el => {
-                    if (el.shadowRoot) scanNode(el.shadowRoot);
+                    if (el.shadowRoot) scan(el.shadowRoot);
+                    
+                    const tag = el.tagName ? el.tagName.toLowerCase() : '';
+                    const isCard = tag.includes('creative') || 
+                                   (el.className && typeof el.className === 'string' && el.className.includes('card')) ||
+                                   el.hasAttribute('creative-id') || 
+                                   el.hasAttribute('data-creative-id');
+                    
+                    if (isCard) {
+                        const rawText = el.innerText || el.textContent || '';
+                        const lines = rawText.split('\\n').map(l => l.trim()).filter(l => l.length > 5);
+                        
+                        // Bersihkan teks metadata UI
+                        const filtered = lines.filter(l => 
+                            !l.toLowerCase().includes('terverifikasi') &&
+                            !l.toLowerCase().includes('sponsored') &&
+                            !l.toLowerCase().includes('disponsori') &&
+                            !l.toLowerCase().includes('00:00') &&
+                            !l.toLowerCase().includes('tidak dapat') &&
+                            !l.toLowerCase().includes('mencakup beberapa')
+                        );
+                        
+                        const headline = filtered[0] || '';
+                        
+                        // Cari ID Video YouTube
+                        let ytId = '';
+                        const imgs = el.querySelectorAll('img');
+                        imgs.forEach(img => {
+                            const src = img.src || img.getAttribute('src') || '';
+                            const m = src.match(/ytimg\\.com\\/vi\\/([a-zA-Z0-9_-]{11})/);
+                            if (m) ytId = m[1];
+                        });
+                        
+                        // Cari Link Landing Page
+                        let link = '';
+                        const anchors = el.querySelectorAll('a');
+                        anchors.forEach(a => {
+                            const h = a.href || a.getAttribute('href') || '';
+                            if (h.includes('adurl=') || h.includes('destination_url=')) {
+                                link = h;
+                            } else if (h.includes('/creative/') && !link) {
+                                link = h;
+                            }
+                        });
+                        
+                        if (headline && !seen.has(headline)) {
+                            seen.add(headline);
+                            results.push({ headline, ytId, link });
+                        }
+                    }
                 });
             }
-            scanNode(document);
-            return list;
+            
+            scan(document);
+            return results;
         }""")
 
+        print(f"📋 Ditemukan {len(dom_cards)} kartu iklan unik dari DOM.")
+
         for cd in dom_cards:
-            headline = cd.get("text") or "Materi Iklan"
+            hl = cd.get("headline", "").strip()
             yt_id = cd.get("ytId")
             yt_url = f"https://youtu.be/{yt_id}" if yt_id else "-"
-            raw_href = cd.get("href") or ""
-            target_link = f"https://adstransparency.google.com{raw_href}" if raw_href.startswith("/") else (raw_href or "https://adstransparency.google.com")
+            lk = cd.get("link") or "https://adstransparency.google.com"
+            if lk.startswith("/"):
+                lk = f"https://adstransparency.google.com{lk}"
 
-            # Tambahkan ke daftar jika belum ada
-            if yt_id or len(headline) > 10:
-                captured_ads.append({
-                    "url": target_link,
-                    "headline": headline,
-                    "youtubeUrl": yt_url,
-                    "advertiser": detected_brand_name
-                })
+            captured_ads.append({
+                "url": lk,
+                "headline": hl,
+                "youtubeUrl": yt_url,
+                "advertiser": detected_brand_name
+            })
     except Exception as e:
-        print(f"⚠️ DOM scan notice: {e}")
+        print(f"⚠️ Catatan DOM scan: {e}")
 
-    print(f"📦 Berhasil menangkap {len(captured_ads)} materi iklan untuk {detected_brand_name}.")
+    print(f"📦 Total materi iklan terhimpun: {len(captured_ads)} materi.")
     return captured_ads
 
 def hitung_performa_dan_rekomendasi(all_items):
-    """Agregasi tayangan, ranking produk, skor performa, dan label rekomendasi"""
+    """Agregasi total tayangan, ranking, skor performa, dan label rekomendasi"""
     product_map = {}
 
     for item in all_items:
@@ -218,9 +265,8 @@ def hitung_performa_dan_rekomendasi(all_items):
             else:
                 nama_produk = "Produk Unggulan"
 
-        # Potong nama jika terlalu panjang
-        if len(nama_produk) > 55:
-            nama_produk = nama_produk[:52] + "..."
+        if len(nama_produk) > 60:
+            nama_produk = nama_produk[:57] + "..."
 
         agg_key = raw_url if (raw_url and "adstransparency.google.com" not in raw_url) else nama_produk
 
