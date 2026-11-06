@@ -9,3 +9,4 @@
 # Format: 1 target per baris (bisa diberi tanda # untuk catatan).
 
 PT MUBARAK MEDIA GRUP
+PT PASIN STORE JAYA
