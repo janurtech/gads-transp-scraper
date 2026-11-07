@@ -376,7 +376,17 @@ def kirim_ke_telegram(pesan):
         if resp.status_code == 200:
             print("✅ Berhasil kirim pesan teks ke Telegram!")
         else:
-            print(f"❌ Gagal kirim Telegram: {resp.text}")
+            print(f"❌ Gagal kirim Telegram (Markdown): {resp.text}. Coba kirim plain text...")
+            payload_plain = {
+                "chat_id": TELEGRAM_CHAT_ID,
+                "text": pesan.replace("*", "").replace("_", ""),
+                "disable_web_page_preview": True
+            }
+            resp_plain = requests.post(url, json=payload_plain, timeout=20)
+            if resp_plain.status_code == 200:
+                print("✅ Berhasil kirim pesan teks (plain text) ke Telegram!")
+            else:
+                print(f"❌ Gagal kirim Telegram (plain text): {resp_plain.text}")
     except Exception as e:
         print(f"❌ Error koneksi ke Telegram API: {e}")
 
@@ -394,7 +404,17 @@ def kirim_file_ke_telegram(file_path, caption):
             if resp.status_code == 200:
                 print("✅ Berhasil kirim file CSV ke Telegram!")
             else:
-                print(f"❌ Gagal kirim file ke Telegram: {resp.text}")
+                print(f"❌ Gagal kirim file ke Telegram (Markdown): {resp.text}. Coba kirim plain text caption...")
+                f.seek(0)
+                data_plain = {
+                    "chat_id": TELEGRAM_CHAT_ID,
+                    "caption": caption.replace("*", "").replace("_", "")
+                }
+                resp_plain = requests.post(url, data=data_plain, files=files, timeout=30)
+                if resp_plain.status_code == 200:
+                    print("✅ Berhasil kirim file CSV (plain text caption) ke Telegram!")
+                else:
+                    print(f"❌ Gagal kirim file ke Telegram (plain text): {resp_plain.text}")
     except Exception as e:
         print(f"❌ Error kirim file: {e}")
 
@@ -411,8 +431,7 @@ async def async_main():
         return
 
     print(f"🎯 Memproses {len(targets)} target kompetitor...")
-    all_scraped_items = []
-    target_stats = {}
+    competitor_results = {}
 
     async with async_playwright() as p:
         browser = await p.chromium.launch(
@@ -432,69 +451,71 @@ async def async_main():
                 items = await scrape_target(page, target, tgl_info)
                 await page.close()
 
-                all_scraped_items.extend(items)
-                target_stats[target] = len(items)
+                competitor_results[target] = items
                 print(f"✅ Selesai: {target} menghasilkan {len(items)} materi iklan.")
                 print("="*50 + "\n")
             except Exception as e:
                 print(f"⚠️ Gagal scrape target '{target}': {e}")
-                target_stats[target] = 0
+                competitor_results[target] = []
 
         await browser.close()
 
-    ranked_products = hitung_performa_dan_rekomendasi(all_scraped_items)
+    # Kirim Laporan Top 25 dan CSV Khusus Per Kompetitor
+    for target, items in competitor_results.items():
+        print(f"\n📊 Memproses laporan untuk kompetitor: {target}...")
+        ranked_products = hitung_performa_dan_rekomendasi(items)
 
-    if not ranked_products:
-        print("⚠️ Tidak ada produk materi iklan yang terdeteksi.")
-        pesan_kosong = f"📊 *REKAP PERFORMA PRODUK TERPANTAU*\n"
-        pesan_kosong += f"📅 *Periode Riset: H-1 (Kemarin, {tgl_info['display']})*\n\n"
-        pesan_kosong += f"ℹ️ Robot berhasil mengecek {len(targets)} pengiklan, namun tidak ada materi iklan yang aktif pada tanggal kemarin ({tgl_info['display']})."
-        kirim_ke_telegram(pesan_kosong)
-        return
+        if not ranked_products:
+            print(f"⚠️ Tidak ada materi iklan terdeteksi untuk: {target}")
+            pesan_kosong = f"📊 *REKAP PERFORMA: {target.upper()}*\n"
+            pesan_kosong += f"📅 *Periode Riset: H-1 (Kemarin, {tgl_info['display']})*\n\n"
+            pesan_kosong += f"ℹ️ Tidak ditemukan materi iklan yang aktif untuk pengiklan ini pada tanggal kemarin ({tgl_info['display']})."
+            kirim_ke_telegram(pesan_kosong)
+            await asyncio.sleep(1)
+            continue
 
-    # 1. Simpan CSV Lengkap Berisi Seluruh Produk dari Semua Pengiklan
-    csv_filename = f"Rekap_Iklan_H1_{tgl_info['file_date']}.csv"
-    simpan_ke_csv(ranked_products, csv_filename, tgl_info['display'])
+        # 1. Simpan CSV Khusus untuk Kompetitor Ini
+        safe_target = re.sub(r'[^a-zA-Z0-9_-]', '_', target).strip('_')
+        csv_filename = f"Rekap_{safe_target}_{tgl_info['file_date']}.csv"
+        simpan_ke_csv(ranked_products, csv_filename, tgl_info['display'])
 
-    # 2. Susun Teks Ringkasan Target
-    ringkasan_target = "\n".join([f"• *{t}:* {count} materi" for t, count in target_stats.items()])
+        # 2. Kirim Pesan Teks Telegram: Khusus TOP 25 Produk Pemenang dari Kompetitor Ini
+        limit_products = ranked_products[:25]
+        total_batch = (len(limit_products) + 12) // 13
 
-    # 3. Kirim Pesan Teks: Khusus TOP 25 Produk Pemenang
-    limit_products = ranked_products[:25]
-    total_batch = (len(limit_products) + 12) // 13
+        for batch_idx in range(total_batch):
+            chunk = limit_products[batch_idx * 13 : (batch_idx + 1) * 13]
+            
+            pesan = f"📊 *REKAP PERFORMA: {target.upper()}* (Bagian {batch_idx + 1}/{total_batch})\n"
+            pesan += f"📅 *Periode Riset: H-1 (Kemarin, {tgl_info['display']})*\n"
+            pesan += f"📦 *Total Terkumpul:* {len(ranked_products)} Produk Unik\n"
+            pesan += f"🏆 *Menampilkan Top {len(limit_products)} Produk Teratas*\n\n"
 
-    for batch_idx in range(total_batch):
-        chunk = limit_products[batch_idx * 13 : (batch_idx + 1) * 13]
-        
-        pesan = f"📊 *REKAP PERFORMA PRODUK TERPANTAU* (Bagian {batch_idx + 1}/{total_batch})\n"
-        pesan += f"📅 *Periode Riset: H-1 (Kemarin, {tgl_info['display']})*\n"
-        pesan += f"🎯 *Status Pengiklan:*\n{ringkasan_target}\n"
-        pesan += f"📦 *Total Terkumpul:* {len(ranked_products)} Produk Unik\n"
-        pesan += f"🏆 *Menampilkan Top 25 Produk Teratas*\n\n"
+            start_num = (batch_idx * 13) + 1
+            for idx, p in enumerate(chunk, start_num):
+                pesan += f"━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                pesan += f"*{idx}. [Rank #{idx}] {p['nama']}*\n"
+                pesan += f"• *Brand:* {p['brand']}\n"
+                pesan += f"• *Tayangan:* {p['totalTayangan']}x | Tren: {p['tren']}\n"
+                pesan += f"• *Rekomendasi:* {p['rek']} (Skor: {p['skor']})\n"
+                pesan += f"• *URL:* {p['url']}\n"
+                pesan += f"• *Link YT:* {p['youtubeUrl']}\n\n"
 
-        start_num = (batch_idx * 13) + 1
-        for idx, p in enumerate(chunk, start_num):
-            pesan += f"━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-            pesan += f"*{idx}. [Rank #{idx}] {p['nama']}*\n"
-            pesan += f"• *Brand:* {p['brand']}\n"
-            pesan += f"• *Tayangan:* {p['totalTayangan']}x | Tren: {p['tren']}\n"
-            pesan += f"• *Rekomendasi:* {p['rek']} (Skor: {p['skor']})\n"
-            pesan += f"• *URL:* {p['url']}\n"
-            pesan += f"• *Link YT:* {p['youtubeUrl']}\n\n"
+            kirim_ke_telegram(pesan)
+            await asyncio.sleep(1)
 
-        kirim_ke_telegram(pesan)
-        await asyncio.sleep(1)
+        # 3. Kirim File CSV Lampiran Khusus Kompetitor Ini
+        caption_csv = f"📁 *DATA LENGKAP {len(ranked_products)} PRODUK: {target.upper()}*\n"
+        caption_csv += f"📅 Periode: {tgl_info['display']}\n"
+        caption_csv += f"💡 _Buka file ini di Excel/Spreadsheet untuk melihat seluruh link landing page dan link video YouTube dari {target}._"
+        kirim_file_ke_telegram(csv_filename, caption_csv)
 
-    # 4. Kirim File CSV Lampiran Berisi SELURUH Data
-    caption_csv = f"📁 *DATA LENGKAP {len(ranked_products)} PRODUK TERPANTAU*\n"
-    caption_csv += f"📅 Periode: {tgl_info['display']}\n"
-    caption_csv += f"💡 _Buka file ini di Excel/Spreadsheet untuk melihat seluruh link landing page dan link video YouTube dari semua pengiklan._"
-    kirim_file_ke_telegram(csv_filename, caption_csv)
+        try:
+            os.remove(csv_filename)
+        except Exception:
+            pass
 
-    try:
-        os.remove(csv_filename)
-    except Exception:
-        pass
+        await asyncio.sleep(2)
 
 def main():
     asyncio.run(async_main())
