@@ -2,10 +2,13 @@ name: Rekap Iklan Harian ke Telegram
 
 on:
   schedule:
-    # Jalan otomatis setiap jam 16:15 WIB (09:15 UTC) - menit :15 menghindari antrean macet menit :00 di GitHub
+    # Jalan otomatis setiap jam 16:15 WIB (09:15 UTC)
     - cron: '15 9 * * *'
   # Memungkinkan dijalankan secara manual kapan saja dari tab Actions
   workflow_dispatch:
+  # Memungkinkan dipicu secara presisi oleh cron/webhook eksternal (misal cron-job.org)
+  repository_dispatch:
+    types: [daily_recap]
 
 jobs:
   scrape-and-notify:
