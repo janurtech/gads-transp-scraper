@@ -220,7 +220,7 @@ async def scrape_target(page, target_raw, tgl_info):
                         if (m) ytId = m[1];
                     });
 
-                    const lines = text.split('\\n').map(l => l.trim()).filter(l => l.length > 5);
+                    const lines = text.split('\\n').map(l => l.trim()).filter(l => l.length > 3);
                     const validLines = lines.filter(l => 
                         !l.toLowerCase().includes('terverifikasi') &&
                         !l.toLowerCase().includes('sponsored') &&
@@ -231,12 +231,17 @@ async def scrape_target(page, target_raw, tgl_info):
                         !l.toLowerCase().includes('pusat iklan') &&
                         !l.toLowerCase().includes('arrow_outward') &&
                         !l.toLowerCase().includes('sesuaikan') &&
-                        !l.toLowerCase().includes('buat iklan')
+                        !l.toLowerCase().includes('buat iklan') &&
+                        !l.toLowerCase().includes('videocam') &&
+                        !l.toLowerCase().includes('play_arrow') &&
+                        !l.toLowerCase().includes('branding_watermark') &&
+                        !l.toLowerCase().includes('more_vert') &&
+                        !l.toLowerCase().includes('open_in_new')
                     );
 
                     const headline = validLines[0] || '';
 
-                    if ((headline && headline.length > 5) || ytId) {
+                    if ((headline && headline.length > 3) || ytId) {
                         const key = headline || ytId;
                         if (!seen.has(key)) {
                             seen.add(key);
@@ -290,6 +295,12 @@ def hitung_performa_dan_rekomendasi(all_items):
         yt_url = item.get("youtubeUrl", "-")
 
         clean_headline = re.sub(r'^(Sponsored|Disponsori|Iklan|00:00)\s*', '', headline, flags=re.I).strip()
+        if clean_headline.lower() in ["videocam", "play_arrow", "arrow_outward", "branding_watermark", "more_vert", "iklan", "none", "open_in_new"]:
+            clean_headline = ""
+
+        # Abaikan kartu kosong / placeholder tanpa link landing page nyata dan tanpa video YT
+        if not clean_headline and yt_url == "-" and ("adstransparency.google.com" in raw_url or not raw_url):
+            continue
         
         nama_produk = clean_headline
         if not nama_produk or len(nama_produk) < 4:
